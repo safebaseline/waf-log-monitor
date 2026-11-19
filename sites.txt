@@ -1,0 +1,70 @@
+# ============================================================
+# WAF 攻击日志采集站点配置（手动模式）
+# ------------------------------------------------------------
+# 用法：
+#   1. 每行一个站点，格式：域名 或 域名:端口（与云 WAF 查询键一致）
+#      例如：www.campus1.example.edu:443、oa.campus1.example.edu:9090
+#   2. 行内空格后的内容视为备注，如：jw.campus1.example.edu 教务系统
+#   3. 以 # 开头的行是注释，空行忽略
+#   4. 删除或注释掉某行 = 停止采集该站点；新增一行 = 纳入采集
+#      （新纳入的站点会自动回拉近 24 小时历史）
+#   5. 修改保存后，点页面右上角「立即刷新」立即生效，
+#      或等待下一轮自动轮询（10 分钟）生效，无需重启服务
+#   6. 清空本文件全部站点（或删除本文件）= 恢复自动同步账号全部站点
+# ============================================================
+
+# ---- 近 24 小时内有攻击记录的站点 ----
+www.campus1.example.edu:443      # 主站
+www.campus1.example.edu
+ding.campus1.example.edu:443
+ding.campus1.example.edu
+gydb.campus1.example.edu:443
+gydb.campus1.example.edu
+kcsz.campus1.example.edu:443
+kcsz.campus1.example.edu
+cas.campus1.example.edu:443      # 统一认证
+cas.campus1.example.edu
+ai.campus1.example.edu:443
+ai.campus1.example.edu
+www.campus2.example.edu:443
+www.campus2.example.edu
+res.campus1.example.edu:443      # 资源站
+res.campus1.example.edu
+
+# ---- 近 24 小时暂无攻击、持续监控中的站点 ----
+ai-gateway.campus1.example.edu
+ai-gateway.campus1.example.edu:443
+baoxiu.campus1.example.edu       # 报修
+baoxiu.campus1.example.edu:443
+chaoxing.campus1.example.edu     # 超星
+chaoxing.campus1.example.edu:443
+cw-m.campus1.example.edu
+cw-m.campus1.example.edu:443
+ehall.campus1.example.edu        # 网上办事大厅
+ehall.campus1.example.edu:443
+i.campus1.example.edu:443
+jw.campus1.example.edu           # 教务
+jw.campus1.example.edu:443
+oa.campus1.example.edu:9090      # 办公系统
+service.campus1.example.edu
+sunnysport.campus1.example.edu
+sunnysport.campus1.example.edu:443
+water.campus1.example.edu
+water.campus1.example.edu:443
+weixiao.campus1.example.edu      # 微校
+weixiao.campus1.example.edu:443
+wlkgo.campus1.example.edu
+wlkgo.campus1.example.edu:443
+xczx.campus1.example.edu
+xczx.campus1.example.edu:443
+xgxt.campus1.example.edu         # 学工系统
+xgxt.campus1.example.edu:443
+yjs.campus1.example.edu          # 研究生
+yjs.campus1.example.edu:443
+yuyue.campus1.example.edu        # 预约
+yuyue.campus1.example.edu:443
+yxt.campus1.example.edu          # 网上缴费平台
+zp.campus1.example.edu
+zp.campus1.example.edu:443
+zc-m.campus1.example.edu
+zc-m.campus1.example.edu:443
