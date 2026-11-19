@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAF 攻击日志实时监控</title>
+<style>
+:root{
+  --bg:#0b1020; --panel:#111a30; --panel2:#0e1526; --line:#1e2a48;
+  --txt:#dbe4f5; --dim:#8294b4; --accent:#4f8cff; --ok:#36c98e; --warn:#f5a623; --err:#ff5d5d;
+  --chart-grid:#1a2643; --chart-label:#66779c; --chart-bar1:#4f8cff; --chart-bar2:#22417c; --chart-bar-hover:#9cc2ff;
+  --mono:Consolas,'Courier New',monospace;
+}
+/* ---------- 浅色主题 ---------- */
+body.light{
+  --bg:#f2f5fb; --panel:#ffffff; --panel2:#edf1f9; --line:#d9e1f0;
+  --txt:#1f2b45; --dim:#5d6f92; --accent:#2f6fe4; --ok:#14935f; --warn:#b96a00; --err:#d43f3f;
+  --chart-grid:#dde4f2; --chart-label:#7a8bab; --chart-bar1:#2f6fe4; --chart-bar2:#9dc0ff; --chart-bar-hover:#1d5cd0;
+}
+body.light header{background:linear-gradient(180deg,#ffffff,#f2f5fb)}
+body.light .side{background:#ffffff}
+body.light .nav-item:hover{background:#edf1f9}
+body.light .nav-item.active{background:linear-gradient(90deg,rgba(47,111,228,.12),transparent)}
+body.light th{background:#e9eefb}
+body.light td{border-bottom:1px solid #e7ecf6}
+body.light tbody tr:hover{background:#edf3ff}
+body.light .toast{background:#ffffff;color:#1f2b45}
+body.light .tag.l-严重{color:#cf2f0e;border-color:#e8826a;background:rgba(207,47,14,.07)}
+body.light .tag.l-高{color:#c05e00;border-color:#e8a26a;background:rgba(192,94,0,.07)}
+body.light .tag.l-中{color:#9a7d00;border-color:#d4c26a;background:rgba(154,125,0,.06)}
+body.light .tag.l-低{color:#2f6fe4;border-color:#8fb1ef;background:rgba(47,111,228,.07)}
+body.light .tag.a-阻断{color:#cf1322;border-color:#ef9a95;background:rgba(207,19,34,.06)}
+body.light .tag.a-放行{color:#1c7f34;border-color:#8fd0a3;background:rgba(28,127,52,.06)}
+body.light #drawer{box-shadow:-8px 0 30px rgba(30,50,90,.18)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:14px/1.6 'Segoe UI','Microsoft YaHei',sans-serif}
+a{color:var(--accent)}
+.app{display:flex;min-height:100vh}
+/* ---------- 侧边菜单 ---------- */
+.side{width:210px;flex-shrink:0;background:#0c1428;border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{display:flex;align-items:center;gap:8px;padding:16px 18px;font-weight:700;font-size:15px;border-bottom:1px solid var(--line);letter-spacing:1px}
+.brand .shield{color:var(--accent)}
+.nav{padding:10px 0;flex:1}
+.nav-title{padding:6px 18px 4px;font-size:11px;color:#5b6c8f;letter-spacing:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:11px 18px;color:var(--dim);text-decoration:none;font-size:14px;border-left:3px solid transparent;transition:.15s}
+.nav-item:hover{color:var(--txt);background:#111c36}
+.nav-item.active{color:#fff;background:linear-gradient(90deg,rgba(79,140,255,.16),transparent);border-left-color:var(--accent)}
+.nav-item .badge{margin-left:auto;background:rgba(255,93,93,.15);color:#ff9c9c;border:1px solid rgba(255,93,93,.35);font-size:11px;border-radius:10px;padding:0 8px;min-width:22px;text-align:center;font-family:var(--mono)}
+.side-foot{padding:12px 18px;border-top:1px solid var(--line);font-size:11px;color:#5b6c8f;line-height:1.8}
+/* ---------- 主区域 ---------- */
+.main{flex:1;min-width:0;padding-bottom:50px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0d1730,#0b1020);position:sticky;top:0;z-index:20}
+header h1{font-size:17px;font-weight:600;letter-spacing:1px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--line);border-radius:20px;font-size:12px;color:var(--dim);background:var(--panel2)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.dot.err{background:var(--err);box-shadow:0 0 6px var(--err)}
+.dot.warn{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+header .grow{flex:1}
+button{background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;transition:.15s}
+button:hover{border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.banner{display:none;padding:10px 22px;background:rgba(255,93,93,.12);border-bottom:1px solid rgba(255,93,93,.4);color:#ffb3b3;font-size:13px}
+.banner.show{display:block}
+.wrap{padding:18px 14px;margin:0;width:100%}
+.view{display:none}
+.view.active{display:block}
+/* ---------- 总览 ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card .k{font-size:12px;color:var(--dim);margin-bottom:4px}
+.card .v{font-size:26px;font-weight:700;font-family:var(--mono)}
+.card .v small{font-size:12px;color:var(--dim);font-weight:400;margin-left:4px}
+.card .v.red{color:var(--err)} .card .v.green{color:var(--ok)} .card .v.orange{color:var(--warn)} .card .v.blue{color:var(--accent)}
+.grid{display:grid;grid-template-columns:2.2fr 1fr;gap:12px;margin-bottom:16px}
+@media(max-width:1100px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.panel h3{font-size:13px;color:var(--dim);font-weight:600;margin-bottom:10px;letter-spacing:1px}
+#chart,#vchart{width:100%;height:220px;display:block}
+canvas.trendchart{width:100%;height:220px;display:block}
+canvas.trendchart.mini{height:150px}
+.hbar{margin:6px 0}
+.hbar .row1{display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px}
+.hbar .row1 .n{color:var(--txt);max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .row1 .c{color:var(--dim);font-family:var(--mono)}
+.hbar .bar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}
+.hbar .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#7db4ff);border-radius:3px}
+.hbar.lv .bar i{background:linear-gradient(90deg,#f5a623,#ffd57e)}
+.hbar.ip .bar i{background:linear-gradient(90deg,#ff5d5d,#ff9e9e)}
+/* ---------- 日志页 ---------- */
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.filters select,.filters input{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:6px 10px;border-radius:6px;font-size:13px;outline:none}
+select.mini{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:1px 4px;border-radius:4px;font-size:12px;outline:none;cursor:pointer}
+select.mini:hover{border-color:var(--accent)}
+.filters input{width:240px}
+.filters label{font-size:12px;color:var(--dim)}
+.filters .grow{flex:1}
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:1180px}
+th{position:sticky;top:0;background:#15203c;color:var(--dim);font-weight:600;text-align:left;padding:9px 10px;font-size:12px;white-space:nowrap;border-bottom:1px solid var(--line);z-index:2}
+td{padding:7px 10px;border-bottom:1px solid #16203a;white-space:nowrap;vertical-align:top}
+tbody tr{cursor:pointer;transition:background .12s}
+tbody tr:hover{background:#16223f}
+tr.fresh{animation:freshin 6s ease-out}
+@keyframes freshin{0%{background:rgba(79,140,255,.35)}100%{background:transparent}}
+.mono{font-family:var(--mono);font-size:12px}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;border:1px solid}
+.tag.l-严重{color:#ff7875;border-color:#ff7875;background:rgba(255,120,117,.1)}
+.tag.l-高{color:#ffa940;border-color:#ffa940;background:rgba(255,169,64,.1)}
+.tag.l-中{color:#ffe58f;border-color:#ffe58f;background:rgba(255,229,143,.08)}
+.tag.l-低{color:#91bfff;border-color:#4f8cff;background:rgba(79,140,255,.1)}
+.tag.a-阻断{color:#ff9c9c;border-color:#ff5d5d;background:rgba(255,93,93,.08)}
+.tag.a-放行{color:#7ce0b3;border-color:#36c98e;background:rgba(54,201,142,.08)}
+.url{max-width:320px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom}
+.geo{max-width:230px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom}
+.pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px 6px;font-size:13px;color:var(--dim)}
+.pagein{width:58px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--mono);text-align:center;outline:none}
+.pagein:focus{border-color:var(--accent)}
+/* ---------- 抽屉 / 弹窗 ---------- */
+#drawer{position:fixed;top:0;right:-620px;width:600px;max-width:95vw;height:100%;background:var(--panel);border-left:1px solid var(--line);z-index:50;transition:right .25s;overflow:auto;padding:18px 20px;box-shadow:-8px 0 30px rgba(0,0,0,.5)}
+#drawer.open{right:0}
+#drawer h2{font-size:16px;margin-bottom:4px}
+#drawer .close{position:sticky;top:0;float:right}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:4px 10px;font-size:13px;margin:10px 0}
+.kv .k{color:var(--dim)}
+.kv .v{word-break:break-all;font-family:var(--mono);font-size:12px}
+pre.raw{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;margin-top:8px}
+.overlay{position:fixed;inset:0;background:rgba(4,8,18,.6);z-index:49;display:none}
+.overlay.show{display:block}
+.modal{position:fixed;top:18%;left:50%;transform:translateX(-50%);width:640px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;z-index:60;display:none}
+.modal.show{display:block}
+.modal h3{margin-bottom:10px}
+.modal textarea{width:100%;height:110px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px;resize:vertical;outline:none}
+.modal .tip{font-size:12px;color:var(--dim);margin:8px 0 12px}
+.modal .btns{display:flex;gap:10px;justify-content:flex-end}
+.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1c2a4a;border:1px solid var(--accent);color:#fff;padding:8px 18px;border-radius:8px;font-size:13px;z-index:70;display:none}
+.footer{color:var(--dim);font-size:12px;text-align:center;margin-top:14px}
+#lasterr{color:var(--err);font-size:12px;margin-top:6px;min-height:16px}
+/* ---------- 窄屏 ---------- */
+@media(max-width:900px){
+  .app{flex-direction:column}
+  .side{width:100%;height:auto;position:static;flex-direction:row;align-items:center;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{border:0;padding:12px 14px;font-size:14px}
+  .nav{display:flex;padding:0 6px;flex:1}
+  .nav-title,.side-foot{display:none}
+  .nav-item{border-left:0;border-bottom:3px solid transparent;padding:14px 10px}
+  .nav-item.active{border-bottom-color:var(--accent);background:none}
+  header{position:static}
+}
+</style>
+</head>
+<body>
+<script>if(localStorage.getItem('theme')==='light')document.body.classList.add('light');</script>
+<div class="app">
+  <nav class="side">
+    <div class="brand"><span class="shield">🛡</span> WAF 监控</div>
+    <div class="nav">
+      <div class="nav-title">功能菜单</div>
+      <a class="nav-item active" data-view="overview" href="#/overview">📊 攻击总览</a>
+      <a class="nav-item" data-view="logs" href="#/logs">📋 攻击日志<span class="badge" id="navBadge" title="今日攻击数"></span></a>
+      <a class="nav-item" data-view="voverview" href="#/voverview">📊 访问总览</a>
+      <a class="nav-item" data-view="visits" href="#/visits">🌐 访问日志<span class="badge" id="navBadgeV" title="今日访问数"></span></a>
+      <a class="nav-item" data-view="blacklist" href="#/blacklist">🚫 黑名单<span class="badge" id="navBadgeB" title="封禁规则数"></span></a>
+    </div>
+    <div class="side-foot">
+      数据源：www.websaas.cn<br>云 WAF 攻击日志接口<br>本地轮询 · 实时展示
+    </div>
+  </nav>
+
+  <div class="main">
+    <header>
+      <h1 id="viewTitle">攻击总览</h1>
+      <span class="chip"><span class="dot warn" id="sseDot"></span><span id="sseTxt">连接中…</span></span>
+      <span class="chip" id="kaChip" title="每分钟向平台发送一次轻量请求保持 Token 会话活跃"><span class="dot warn" id="kaDot"></span><span id="kaTxt">保活…</span></span>
+      <span class="chip">🌐 站点 <b class="mono" id="siteCount">-</b><span id="siteSrc" style="margin-left:2px"></span></span>
+      <span class="chip" id="tokenChip"><span class="dot warn"></span><span id="tokenTxt">Token 检查中</span></span>
+      <span class="chip">⏱ 轮询 <select id="fInterval" class="mini" title="设置自动轮询间隔，保存后立即生效">
+        <option value="0.5">30秒</option>
+        <option value="1">1分钟</option>
+        <option value="5">5分钟</option>
+        <option value="10">10分钟</option>
+      </select> · 下次 <b class="mono" id="countdown">--:--</b></span>
+      <div class="grow"></div>
+      <button id="btnTheme" title="切换浅色/深色主题">☀️ 浅色</button>
+      <button class="primary" id="btnPoll">立即刷新</button>
+      <button id="btnToken">更新 Token</button>
+    </header>
+    <div class="banner" id="banner"></div>
+
+    <!-- 视图：攻击总览 -->
+    <section class="view active" id="view-overview">
+      <div class="wrap">
+        <div class="cards">
+          <div class="card"><div class="k">今日攻击（东八区）</div><div class="v red"><span id="cToday">-</span></div></div>
+          <div class="card"><div class="k">今日已阻断</div><div class="v green"><span id="cBlocked">-</span></div></div>
+          <div class="card"><div class="k">今日中高危</div><div class="v orange"><span id="cHigh">-</span></div></div>
+          <div class="card"><div class="k">受攻击站点</div><div class="v blue"><span id="cSites">-</span><small>近24h</small></div></div>
+          <div class="card"><div class="k">本地日志总量</div><div class="v"><span id="cTotal">-</span><small>条</small></div></div>
+        </div>
+        <div class="grid">
+          <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+            <div class="panel"><h3>攻击趋势（按小时，近24h）</h3><canvas id="chart"></canvas></div>
+            <div class="panel"><h3 id="at0Title">TOP1 受攻击站点趋势</h3><canvas id="achart0" class="trendchart mini"></canvas></div>
+            <div class="panel"><h3 id="at1Title">TOP2 受攻击站点趋势</h3><canvas id="achart1" class="trendchart mini"></canvas></div>
+            <div class="panel"><h3 id="at2Title">TOP3 受攻击站点趋势</h3><canvas id="achart2" class="trendchart mini"></canvas></div>
+          </div>
+          <div>
+            <div class="panel" style="margin-bottom:12px"><h3>TOP 受攻击站点</h3><div id="pSites"></div></div>
+            <div class="panel" style="margin-bottom:12px"><h3>TOP 攻击源 IP</h3><div id="pIps"></div></div>
+            <div class="panel"><h3>TOP 攻击类型</h3><div id="pTypes"></div></div>
+          </div>
+        </div>
+        <div class="footer">点击左侧「攻击日志」菜单查看完整明细</div>
+        <div id="lasterr"></div>
+      </div>
+    </section>
+
+    <!-- 视图：攻击日志 -->
+    <section class="view" id="view-logs">
+      <div class="wrap">
+        <div class="filters">
+          <label>站点</label><select id="fSite"><option value="all">全部</option></select>
+          <label>等级</label><select id="fLevel"><option value="all">全部</option></select>
+          <label>动作</label><select id="fAction"><option value="all">全部</option></select>
+          <label>状态码</label><select id="fStatus"><option value="all">全部</option></select>
+          <label>范围</label><select id="fHours">
+            <option value="1">近 1 小时</option>
+            <option value="6">近 6 小时</option>
+            <option value="12">近 12 小时</option>
+            <option value="24" selected>近 24 小时</option>
+            <option value="168">近 7 天</option>
+            <option value="0">全部</option>
+          </select>
+          <input id="fKw" placeholder="搜索 IP / URL / 攻击类型 / 城市…">
+          <div class="grow"></div>
+          <span class="chip" id="rowInfo">-</span>
+          <button id="btnBlacklist">⛔ 拉黑 IP</button>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr>
+              <th>攻击时间</th><th>目标站点</th><th>攻击类型</th><th>等级</th><th>动作</th>
+              <th>源 IP</th><th>源地理位置</th><th>方法</th><th>请求 URL</th><th>状态码</th><th>规则 ID</th>
+            </tr></thead>
+            <tbody id="tbody"><tr><td colspan="11" style="color:var(--dim);text-align:center;padding:30px">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <span id="pageInfo">第 <input id="fPage" class="pagein" type="number" min="1" value="1"> / <b id="fPageTotal">1</b> 页（回车跳转）</span>
+          <button id="btnPrev">上一页</button>
+          <button id="btnNext">下一页</button>
+        </div>
+        <div class="footer">数据来源：www.websaas.cn 云 WAF 攻击日志接口 · 点击行查看详情</div>
+      </div>
+    </section>
+    <!-- 视图：访问总览 -->
+    <section class="view" id="view-voverview">
+      <div class="wrap">
+        <div class="cards">
+          <div class="card"><div class="k">今日访问请求（东八区）</div><div class="v blue"><span id="cVToday">-</span></div></div>
+          <div class="card"><div class="k">有访问的站点</div><div class="v"><span id="cVSites">-</span><small>近24h</small></div></div>
+          <div class="card"><div class="k">库内访问日志</div><div class="v"><span id="cVTotal">-</span><small>条</small></div></div>
+          <div class="card"><div class="k">爬虫请求占比</div><div class="v orange"><span id="cVSpider">-</span><small>近24h</small></div></div>
+        </div>
+        <div class="grid">
+          <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+            <div class="panel"><h3>访问量趋势（按小时，近24h）</h3><canvas id="vchart"></canvas></div>
+            <div class="panel"><h3 id="mt0Title">TOP1 站点趋势</h3><canvas id="mchart0" class="trendchart mini"></canvas></div>
+            <div class="panel"><h3 id="mt1Title">TOP2 站点趋势</h3><canvas id="mchart1" class="trendchart mini"></canvas></div>
+            <div class="panel"><h3 id="mt2Title">TOP3 站点趋势</h3><canvas id="mchart2" class="trendchart mini"></canvas></div>
+          </div>
+          <div>
+            <div class="panel" style="margin-bottom:12px"><h3>请求量 TOP 站点（近24h）</h3><div id="pvSites"></div></div>
+            <div class="panel" style="margin-bottom:12px"><h3>状态码分布</h3><div id="pvStatus"></div></div>
+            <div class="panel" style="margin-bottom:12px"><h3>请求方法</h3><div id="pvMethods"></div></div>
+            <div class="panel"><h3>TOP 访问源 IP</h3><div id="pvIps"></div></div>
+          </div>
+        </div>
+        <div class="footer">点击左侧「访问日志」菜单查看请求明细</div>
+      </div>
+    </section>
+
+    <!-- 视图：访问日志 -->
+    <section class="view" id="view-visits">
+      <div class="wrap">
+        <div class="filters">
+          <label>站点</label><select id="vfSite"><option value="all">全部站点</option></select>
+          <label>状态码</label><select id="vfStatus"><option value="all">全部</option></select>
+          <label>方法</label><select id="vfMethod"><option value="all">全部</option></select>
+          <label>范围</label><select id="vfHours">
+            <option value="1">近 1 小时</option>
+            <option value="6">近 6 小时</option>
+            <option value="12">近 12 小时</option>
+            <option value="24" selected>近 24 小时</option>
+            <option value="48">近 2 天</option>
+          </select>
+          <input id="vfKw" placeholder="搜索 IP / URL / Referer / UA…">
+          <div class="grow"></div>
+          <span class="chip" id="vrowInfo">-</span>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr>
+              <th>访问时间</th><th>站点</th><th>源 IP</th><th>源地理位置</th><th>方法</th>
+              <th>请求 URL</th><th>状态码</th><th>耗时ms</th><th>流量</th><th>爬虫</th>
+            </tr></thead>
+            <tbody id="vtbody"><tr><td colspan="10" style="color:var(--dim);text-align:center;padding:30px">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <span id="vpageInfo">第 <input id="vfPage" class="pagein" type="number" min="1" value="1"> / <b id="vfPageTotal">1</b> 页（回车跳转）</span>
+          <button id="vbtnPrev">上一页</button>
+          <button id="vbtnNext">下一页</button>
+        </div>
+        <div class="footer" id="vExclude" style="color:var(--warn);display:none"></div>
+        <div class="footer" id="vGapNote">访问日志为游标式增量采集（每轮从上次位置追平）· 点击行查看详情</div>
+      </div>
+    </section>
+    <!-- 视图：黑名单 -->
+    <section class="view" id="view-blacklist">
+      <div class="wrap">
+        <div class="cards">
+          <div class="card"><div class="k">封禁规则总数</div><div class="v red"><span id="cBTotal">-</span></div></div>
+          <div class="card"><div class="k">手动封禁</div><div class="v orange"><span id="cBManual">-</span></div></div>
+          <div class="card"><div class="k">云盾智能封禁</div><div class="v blue"><span id="cBAuto">-</span></div></div>
+          <div class="card"><div class="k">已过期未清理</div><div class="v"><span id="cBExpired">-</span></div></div>
+        </div>
+        <div class="filters">
+          <input id="bKw" placeholder="搜索 IP / 备注…" style="width:240px">
+          <div class="grow"></div>
+          <span class="chip" id="bRowInfo">-</span>
+          <button id="btnBRefresh">↻ 刷新列表</button>
+        </div>
+        <div class="tablewrap">
+          <table style="min-width:1000px">
+            <thead><tr>
+              <th>IP / 网段</th><th>动作</th><th>类型</th><th>备注</th><th>生效域名数</th>
+              <th>创建时间</th><th>到期时间</th><th>剩余</th><th>操作人</th><th>操作</th>
+            </tr></thead>
+            <tbody id="btbody"><tr><td colspan="10" style="color:var(--dim);text-align:center;padding:30px">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="footer">数据来自云 WAF「访问控制」；与平台页面实时同步 · 拉黑新 IP 请到「攻击日志」详情页或筛选栏操作</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- 详情抽屉 -->
+<div class="overlay" id="overlay"></div>
+<div id="drawer">
+  <button class="close" id="btnClose">✕ 关闭</button>
+  <h2 id="dTitle">攻击详情</h2>
+  <div id="dBody"></div>
+  <div id="dActions" style="margin-top:14px;display:none"></div>
+</div>
+
+<!-- Token 弹窗 -->
+<div class="modal" id="tokenModal">
+  <h3>更新 Bearer Token</h3>
+  <div class="tip">在浏览器中打开 websaas.cn 攻击日志页面，按 F12 → 网络（Network）→ 任选一个 cloud-waf 请求 → 请求头里复制 Authorization: Bearer 后面的整串，粘贴到下面。Token 更新后会立即重新查询。</div>
+  <div id="trNote" style="font-size:12px;color:var(--dim);margin:0 0 10px"></div>
+  <label style="font-size:12px;color:var(--dim)">当前使用的 Token（旧）</label>
+  <div style="display:flex;gap:8px;align-items:flex-start;margin:4px 0 12px">
+    <textarea id="curToken" readonly style="height:54px;flex:1;color:#9fb2d4" placeholder="（无）"></textarea>
+    <button id="btnCopyToken" style="white-space:nowrap">复制</button>
+  </div>
+  <label style="font-size:12px;color:var(--dim)">新的 Token</label>
+  <textarea id="tokenInput" style="margin-top:4px" placeholder="eyJhbGciOiJI..."></textarea>
+  <div class="btns"><button id="btnTokenCancel">取消</button><button class="primary" id="btnTokenSave">保存并立即查询</button></div>
+</div>
+<!-- 拉黑 IP 弹窗 -->
+<div class="modal" id="blacklistModal">
+  <h3>⛔ 加入 IP 黑名单（云 WAF 全站封禁）</h3>
+  <div class="tip">将 IP 提交到云 WAF 访问控制（ACL），对当前监控的全部站点生效；在平台「访问控制」页面可管理已有规则。</div>
+  <label style="font-size:12px;color:var(--dim)">IP 地址（支持 IPv4 / IPv6 / CIDR 网段，多个用逗号或换行分隔）</label>
+  <textarea id="blIp" style="height:70px;font-family:var(--mono)" placeholder="1.2.3.4&#10;240e:473:9300::/48&#10;5.6.7.0/24"></textarea>
+  <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
+    <label style="font-size:12px;color:var(--dim)">有效期</label>
+    <select id="blDays" class="mini">
+      <option value="1">1 天</option>
+      <option value="7">7 天</option>
+      <option value="30" selected>30 天</option>
+      <option value="365">365 天</option>
+    </select>
+    <label style="font-size:12px;color:var(--dim);margin-left:8px">备注</label>
+    <input id="blDesc" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:6px 10px;font-size:13px;outline:none" placeholder="默认为 IP">
+  </div>
+  <div class="btns" style="margin-top:14px"><button id="blCancel">取消</button><button class="primary" id="blSubmit">确认封禁</button></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const PAGE_SIZE = 50;
+let curPage = 0, totalRows = 0, freshIds = new Set(), nextPollAt = 0;
+
+function toast(msg, ok){
+  const t = $('toast');
+  t.textContent = msg; t.style.borderColor = ok === false ? 'var(--err)' : 'var(--accent)'; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2600);
+}
+function renderKeepAlive(ka){
+  const chip = $('kaChip'); if(!chip) return;
+  if(!ka || !ka.enabled){ chip.style.display = 'none'; return; }
+  const t = ka.lastAt ? new Date(ka.lastAt).toLocaleTimeString('zh-CN', {hour12:false}) : null;
+  $('kaDot').className = 'dot ' + (ka.ok ? 'ok' : (ka.ok === false ? 'err' : 'warn'));
+  $('kaTxt').textContent = ka.ok === true ? ('保活 ' + t)
+    : ka.ok === false ? ('保活失败' + (ka.note ? '：' + ka.note : '') + (t ? '（' + t + '）' : ''))
+    : '保活探测中…';
+}
+
+/* ---------- 黑名单列表 ---------- */
+const BL_TYPE = { '1': '手动', '4': '云盾智能', '2': '定制' };
+let blRules = [];
+async function refreshBlacklist(){
+  try{
+    const r = await (await fetch('/api/blacklist/list')).json();
+    if(r.error){ $('btbody').innerHTML = '<tr><td colspan="10" style="color:var(--err);text-align:center;padding:30px">' + esc(r.error) + '</td></tr>'; return; }
+    blRules = r.items || [];
+    renderBlacklist();
+  }catch(e){ $('btbody').innerHTML = '<tr><td colspan="10" style="color:var(--err);text-align:center;padding:30px">加载失败: ' + esc(e.message) + '</td></tr>'; }
+}
+function renderBlacklist(){
+  const kw = $('bKw').value.trim().toLowerCase();
+  const now = Date.now();
+  const items = blRules.filter(x => !kw || x.ips.toLowerCase().includes(kw) || (x.desc || '').toLowerCase().includes(kw));
+  const expired = blRules.filter(x => x.endTime && x.endTime < now).length;
+  $('cBTotal').textContent = blRules.length;
+  $('cBManual').textContent = blRules.filter(x => x.type === '1').length;
+  $('cBAuto').textContent = blRules.filter(x => x.type === '4').length;
+  $('cBExpired').textContent = expired;
+  $('navBadgeB').textContent = blRules.length;
+  $('bRowInfo').textContent = '共 ' + items.length + ' 条' + (kw ? '（筛选自 ' + blRules.length + ' 条）' : '');
+  const tb = $('btbody');
+  if(!items.length){ tb.innerHTML = '<tr><td colspan="10" style="color:var(--dim);text-align:center;padding:30px">没有匹配的封禁规则</td></tr>'; return; }
+  tb.innerHTML = items.map(x => {
+    const isExpired = x.endTime && x.endTime < now;
+    let leftTxt = '-';
+    if (x.endTime && !isExpired) {
+      const hTotal = Math.floor((x.endTime - now) / 3600e3);
+      const d = Math.floor(hTotal / 24), h = hTotal % 24;
+      if (d > 365) leftTxt = (d / 365).toFixed(1) + ' 年';
+      else leftTxt = d > 0 ? (d + ' 天 ' + h + ' 时') : (h + ' 小时');
+    }
+    return '<tr data-buuid="' + esc(x.uuid) + '">' +
+      '<td class="mono" style="color:#ff9c9c">' + esc(x.ips) + '</td>' +
+      '<td><span class="tag a-阻断">' + esc(x.action === 'block' ? '阻断' : x.action) + '</span></td>' +
+      '<td>' + esc(BL_TYPE[x.type] || x.type || '-') + '</td>' +
+      '<td><span class="geo" title="' + esc(x.desc) + '">' + esc(x.desc || '-') + '</span></td>' +
+      '<td class="mono">' + esc(x.domains || '-') + '</td>' +
+      '<td class="mono">' + (x.createTime ? new Date(x.createTime).toLocaleString('zh-CN', {hour12:false}) : '-') + '</td>' +
+      '<td class="mono">' + (x.endTime ? new Date(x.endTime).toLocaleString('zh-CN', {hour12:false}) : '-') + '</td>' +
+      '<td>' + (isExpired ? '<span class="tag a-阻断">已过期</span>' : leftTxt) + '</td>' +
+      '<td>' + esc(x.user || '-') + '</td>' +
+      '<td><button class="bl-del" data-buuid="' + esc(x.uuid) + '" style="padding:2px 10px;font-size:12px">删除</button></td></tr>';
+  }).join('');
+}
+$('bKw').oninput = renderBlacklist;
+$('btnBRefresh').onclick = refreshBlacklist;
+$('btbody').addEventListener('click', async ev => {
+  const btn = ev.target.closest('button.bl-del');
+  if(!btn) return;
+  const uuid = btn.dataset.buuid;
+  const rule = blRules.find(x => x.uuid === uuid);
+  if(!rule) return;
+  if(!confirm('确定从云 WAF 删除该封禁规则？\n\nIP: ' + rule.ips + '\n备注: ' + (rule.desc || '-') + '\n\n删除后该 IP 立即恢复访问。')) return;
+  btn.disabled = true; btn.textContent = '删除中…';
+  try{
+    const r = await fetch('/api/blacklist/remove', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ uuids: [uuid] }) });
+    const j = await r.json();
+    if(r.ok && j.ok){ toast('规则已删除'); refreshBlacklist(); }
+    else toast('删除失败: ' + (j.detail || j.error), false);
+  }catch(e){ toast('删除失败: ' + e.message, false); }
+  finally{ btn.disabled = false; btn.textContent = '删除'; }
+});
+
+/* ---------- 分页：手动输入页码跳转 ---------- */
+function bindPageJump(inputId, getCur, setCur, refresh){
+  const inp = $(inputId);
+  const jump = () => {
+    const n = parseInt(inp.value, 10);
+    const pages = Math.max(1, Math.ceil((inputId === 'fPage' ? totalRows : vTotalRows) / (inputId === 'fPage' ? PAGE_SIZE : VPAGE)));
+    if (isNaN(n)) { inp.value = getCur() + 1; return; }
+    const target = Math.min(pages, Math.max(1, n)) - 1;
+    if (target !== getCur()) { setCur(target); inp.blur(); refresh(); }
+    else inp.value = getCur() + 1;
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); jump(); } });
+  inp.addEventListener('blur', jump);
+}
+function syncPageDisplay(inputId, totalId, cur, pages){
+  const inp = $(inputId);
+  if (document.activeElement !== inp) inp.value = cur + 1;
+  $(totalId).textContent = pages;
+}
+bindPageJump('fPage', () => curPage, p => curPage = p, refreshLogs);
+bindPageJump('vfPage', () => vCurPage, p => vCurPage = p, refreshVisitLogs);
+
+/* ---------- 菜单切换 ---------- */
+const VIEW_TITLES = { overview: '攻击总览', logs: '攻击日志', voverview: '访问总览', visits: '访问日志', blacklist: 'IP 黑名单' };
+function currentView(){ const h = location.hash.replace(/^#\//, ''); return VIEW_TITLES[h] ? h : 'overview'; }
+function applyView(){
+  const v = currentView();
+  document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.view === v));
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
+  $('viewTitle').textContent = VIEW_TITLES[v];
+  if (v === 'logs') refreshLogs();
+  else if (v === 'visits') refreshVisitLogs();
+  else if (v === 'blacklist') refreshBlacklist();
+  else if (v === 'voverview') { refreshVisitStats(); drawVChart(vBuckets); miniCharts.forEach(m => m.render()); }
+  else { refreshStats(); drawChart(chartBuckets); aMiniCharts.forEach(m => m.render()); }
+}
+window.addEventListener('hashchange', applyView);
+
+/* ---------- 状态徽章 ---------- */
+async function refreshState(){
+  try{
+    const s = await (await fetch('/api/state')).json();
+    nextPollAt = s.nextPollAt || 0;
+    $('siteCount').textContent = s.siteCount != null ? s.siteCount : (s.sites || []).length;
+    $('siteSrc').textContent = s.siteSource === 'manual' ? '·手动' : '·自动';
+    window.__visitMaxLogs = s.visitMaxLogs || 0;
+    renderKeepAlive(s.keepAlive);
+    const gn = $('vGapNote');
+    const trn = $('trNote');
+    if(trn && s.tokenRefresh){
+      const tr = s.tokenRefresh;
+      const t = tr.lastAt ? new Date(tr.lastAt).toLocaleTimeString('zh-CN', {hour12:false}) : null;
+      trn.textContent = tr.enabled
+        ? '🔄 自动换发（每 ' + tr.interval + ' 分钟，上次 ' + (t || '-') + '）：' + (tr.note || '尚未执行')
+        : '🔄 自动换发未启用（config.json 配置 tokenRefreshUrl）';
+    }
+    if(gn){
+      if(s.visitGap > 0){
+        gn.innerHTML = '⚠ 上一轮访问日志缺口约 <b style="color:var(--err)">' + s.visitGap + '</b> 条（' + (s.visitGapSites || []).join('、') + '）—— 流量超出单轮页数上限，可缩短轮询间隔或调大 visitMaxPagesPerSite';
+      } else {
+        gn.textContent = '访问日志为游标式增量采集（每轮从上次位置追平，上一轮无缺口）· 点击行查看详情';
+      }
+    }
+    const vex = $('vExclude');
+    if(vex){
+      const ex = s.visitExclude || [];
+      if(ex.length){ vex.style.display = 'block'; vex.textContent = '⛔ 访问日志采集例外: ' + ex.join('、') + '（编辑 visit-exclude.txt，下一轮生效；攻击日志不受影响）'; }
+      else vex.style.display = 'none';
+    }
+    const iv = $('fInterval');
+    if(document.activeElement !== iv && iv.value !== String(s.intervalMinutes)) iv.value = String(s.intervalMinutes);
+    const tk = s.token || {};
+    const chip = $('tokenChip'), dot = chip.querySelector('.dot'), txt = $('tokenTxt');
+    dot.className = 'dot ' + (tk.status === 'valid' ? 'ok' : 'err');
+    const expStr = tk.exp ? new Date(tk.exp).toLocaleString('zh-CN', {hour12:false}) : '未知';
+    txt.textContent = tk.status === 'valid' ? ('Token 有效 · ' + expStr + ' 到期')
+      : tk.status === 'expired' ? ('Token 已过期（' + expStr + '）· 点击右上角更新')
+      : tk.status === 'invalid' ? 'Token 无效 · 请更新' : 'Token 缺失 · 请配置';
+    const banner = $('banner');
+    if(tk.status !== 'valid'){
+      banner.textContent = '⚠ ' + txt.textContent + ' —— 轮询会持续进行，但在更新 Token 前无法获取新数据。';
+      banner.classList.add('show');
+    } else banner.classList.remove('show');
+    $('lasterr').textContent = s.lastError ? ('最近一次轮询出错：' + s.lastError) : '';
+    $('btnPoll').disabled = s.polling;
+    if(s.polling) $('btnPoll').textContent = '查询中…'; else $('btnPoll').textContent = '立即刷新';
+  }catch(e){ $('sseTxt').textContent = '服务不可达'; $('sseDot').className = 'dot err'; }
+}
+
+/* ---------- 统计面板 ---------- */
+async function refreshStats(){
+  const s = await (await fetch('/api/stats?hours=24')).json();
+  $('cToday').textContent = s.today.count;
+  $('cBlocked').textContent = s.today.blocked;
+  $('cHigh').textContent = s.today.high;
+  $('cSites').textContent = s.sites.length;
+  $('cTotal').textContent = s.total;
+  $('navBadge').textContent = s.today.count > 999 ? '999+' : s.today.count;
+  renderHbars('pSites', s.sites);
+  renderHbars('pIps', s.srcIps, 'ip');
+  // TOP 攻击源 IP 可点击：直达攻击日志页并按该 IP 筛选
+  $('pIps').querySelectorAll('.hbar .n').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.title = '点击查看该 IP 的攻击日志';
+    el.onclick = () => { $('fKw').value = el.textContent; curPage = 0; location.hash = '#/logs'; };
+  });
+    renderHbars('pTypes', s.types);
+    renderMiniTrends(s.topTrends, aMiniCharts);
+    drawChart(s.buckets);
+}
+/* ---------- 筛选器选项（与「范围」联动，含零攻击站点） ---------- */
+const LEVEL_ORDER = ['严重', '高', '中', '低', '信息'];
+function rebuildSelect(id, allVal, allLabel, opts){
+  const sel = $(id), prev = sel.value;
+  sel.innerHTML = '';
+  const all = document.createElement('option'); all.value = allVal; all.textContent = allLabel; sel.appendChild(all);
+  for(const o of opts){ const p = document.createElement('option'); p.value = o.v; p.textContent = o.t; sel.appendChild(p); }
+  const keep = [...sel.options].some(o => o.value === prev);
+  sel.value = keep ? prev : allVal;
+  return keep; // 返回 false 表示原选择已不存在（调用方需刷新列表）
+}
+async function refreshFacets(){
+  try{
+    const f = await (await fetch('/api/facets?hours=' + $('fHours').value)).json();
+    const okSite = rebuildSelect('fSite', 'all', '全部站点',
+      f.sites.map(x => ({ v: x.host, t: x.host + (x.count ? ' (' + x.count + ')' : '') })));
+    const levels = f.levels.slice().sort((a, b) => {
+      const ia = LEVEL_ORDER.indexOf(a.name), ib = LEVEL_ORDER.indexOf(b.name);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    const okLevel = rebuildSelect('fLevel', 'all', '全部', levels.map(x => ({ v: x.name, t: x.name + ' (' + x.count + ')' })));
+    const okAction = rebuildSelect('fAction', 'all', '全部', f.actions.map(x => ({ v: x.name, t: x.name + ' (' + x.count + ')' })));
+    const okStatus = rebuildSelect('fStatus', 'all', '全部', (f.statusCodes || []).map(x => ({ v: x.name, t: x.name + ' (' + x.count + ')' })));
+    if(!okSite || !okLevel || !okAction || !okStatus){ curPage = 0; refreshLogs(); }
+  }catch(e){ /* 静默，下轮重试 */ }
+}
+function renderHbars(id, list, cls){
+  const box = $(id);
+  if(!list || !list.length){ box.innerHTML = '<div style="color:var(--dim);font-size:12px">暂无数据</div>'; return; }
+  const max = Math.max(...list.map(x => x.count));
+  box.innerHTML = list.map(x =>
+    '<div class="hbar ' + (cls||'') + '"><div class="row1"><span class="n" title="' + esc(x.name) + '">' + esc(x.name) + '</span><span class="c">' + x.count + '</span></div>' +
+    '<div class="bar"><i style="width:' + (x.count / max * 100).toFixed(1) + '%"></i></div></div>').join('');
+}
+
+/* ---------- 趋势图 ---------- */
+/* ---------- 趋势图（通用柱状绘制，攻击/访问两个实例共用） ---------- */
+function drawBars(cv, c2, buckets, hoverIdx){
+  if(!cv.clientWidth || !buckets.length) return; // 视图隐藏时跳过，切换时重绘
+  const cs = getComputedStyle(document.body);
+  const C_GRID = cs.getPropertyValue('--chart-grid').trim() || '#1a2643';
+  const C_LABEL = cs.getPropertyValue('--chart-label').trim() || '#66779c';
+  const C_BAR1 = cs.getPropertyValue('--chart-bar1').trim() || '#4f8cff';
+  const C_BAR2 = cs.getPropertyValue('--chart-bar2').trim() || '#22417c';
+  const C_HOVER = cs.getPropertyValue('--chart-bar-hover').trim() || '#9cc2ff';
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight || 220;
+  cv.width = w * dpr; cv.height = h * dpr;
+  c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c2.clearRect(0, 0, w, h);
+  const padL = 34, padB = 22, padT = 10, padR = 8;
+  const max = Math.max(1, ...buckets.map(b => b.count));
+  const n = Math.max(buckets.length, 24);
+  const bw = (w - padL - padR) / n;
+  c2.strokeStyle = C_GRID; c2.fillStyle = C_LABEL; c2.font = '10px Consolas'; c2.textAlign = 'right';
+  for(let i = 0; i <= 4; i++){
+    const y = padT + (h - padT - padB) * i / 4;
+    c2.beginPath(); c2.moveTo(padL, y); c2.lineTo(w - padR, y); c2.stroke();
+    c2.fillText(Math.round(max * (4 - i) / 4), padL - 6, y + 3);
+  }
+  buckets.forEach((b, i) => {
+    const bh = (h - padT - padB) * b.count / max;
+    const x = padL + i * bw + bw * 0.12, y = h - padB - bh;
+    const grad = c2.createLinearGradient(0, y, 0, h - padB);
+    if(i === hoverIdx){ grad.addColorStop(0, C_HOVER); grad.addColorStop(1, C_BAR1); }
+    else { grad.addColorStop(0, C_BAR1); grad.addColorStop(1, C_BAR2); }
+    c2.fillStyle = grad;
+    const width = Math.max(2, bw * 0.76);
+    c2.beginPath();
+    const r = Math.min(3, width/2, bh);
+    c2.roundRect ? c2.roundRect(x, y, width, Math.max(bh,1), [r,r,0,0]) : c2.rect(x, y, width, Math.max(bh,1));
+    c2.fill();
+    if(i % Math.ceil(n / 12) === 0){
+      c2.fillStyle = C_LABEL; c2.textAlign = 'center'; c2.font = '9px Consolas';
+      c2.fillText(b.hour, x + width / 2, h - 8);
+    }
+  });
+}
+const chart = $('chart'), ctx = chart.getContext('2d');
+let chartBuckets = [], chartHover = -1;
+function drawChart(buckets){ chartBuckets = buckets || []; drawBars(chart, ctx, chartBuckets, chartHover); }
+const vchart = $('vchart'), vctx = vchart.getContext('2d');
+let vBuckets = [], vHover = -1;
+function drawVChart(buckets){ vBuckets = buckets || []; drawBars(vchart, vctx, vBuckets, vHover); }
+function bindChartHover(cv, getHover, setHover, redraw){
+  cv.addEventListener('mousemove', e => {
+    const rect = cv.getBoundingClientRect();
+    const padL = 34, padR = 8, n = Math.max((redraw === drawChart ? chartBuckets : vBuckets).length, 24);
+    const bw = (rect.width - padL - padR) / n;
+    const i = Math.floor((e.clientX - rect.left - padL) / bw);
+    if(i >= 0 && i < (redraw === drawChart ? chartBuckets : vBuckets).length){ setHover(i); redraw(redraw === drawChart ? chartBuckets : vBuckets); }
+  });
+  cv.addEventListener('mouseleave', () => { setHover(-1); redraw(redraw === drawChart ? chartBuckets : vBuckets); });
+}
+bindChartHover(chart, () => chartHover, i => chartHover = i, drawChart);
+bindChartHover(vchart, () => vHover, i => vHover = i, drawVChart);
+/* 迷你趋势图工厂（攻击/访问总览各一组实例） */
+function makeMiniCharts(chartPrefix, titlePrefix, defTitle){
+  return [0, 1, 2].map(i => {
+    const cv = $(chartPrefix + i), c2 = cv.getContext('2d');
+    let buckets = [], hover = -1;
+    const render = () => drawBars(cv, c2, buckets, hover);
+    cv.addEventListener('mousemove', e => {
+      const rect = cv.getBoundingClientRect();
+      const padL = 34, padR = 8, n = Math.max(buckets.length, 24);
+      const bw = (rect.width - padL - padR) / n;
+      const idx = Math.floor((e.clientX - rect.left - padL) / bw);
+      if (idx >= 0 && idx < buckets.length && idx !== hover) { hover = idx; render(); }
+    });
+    cv.addEventListener('mouseleave', () => { hover = -1; render(); });
+    return {
+      set(title, data) {
+        buckets = data || [];
+        $(titlePrefix + i + 'Title').textContent = title || (defTitle + (i + 1) + ' 暂无数据');
+        render();
+      },
+      render
+    };
+  });
+}
+const miniCharts = makeMiniCharts('mchart', 'mt', 'TOP');
+const aMiniCharts = makeMiniCharts('achart', 'at', 'TOP');
+function renderMiniTrends(list, charts, fmt){
+  fmt = fmt || (n => n);
+  for (let i = 0; i < 3; i++) {
+    const t = (list || [])[i];
+    charts[i].set(t ? (t.host + '（' + fmt(t.count) + '）') : null, t && t.buckets);
+  }
+}
+window.addEventListener('resize', () => { drawChart(chartBuckets); drawVChart(vBuckets); miniCharts.forEach(m => m.render()); aMiniCharts.forEach(m => m.render()); });
+
+/* ---------- 日志表 ---------- */
+async function refreshLogs(){
+  const p = new URLSearchParams({
+    site: $('fSite').value, level: $('fLevel').value, action: $('fAction').value,
+    status: $('fStatus') ? $('fStatus').value : 'all',
+    hours: $('fHours').value, kw: $('fKw').value.trim(),
+    page: curPage, size: PAGE_SIZE
+  });
+  const r = await (await fetch('/api/logs?' + p)).json();
+  totalRows = r.total;
+  const pages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  if(curPage >= pages){ curPage = pages - 1; return refreshLogs(); }
+  $('rowInfo').textContent = '共 ' + totalRows + ' 条';
+  syncPageDisplay('fPage', 'fPageTotal', curPage, pages);
+  $('btnPrev').disabled = curPage === 0;
+  $('btnNext').disabled = curPage >= pages - 1;
+  const tb = $('tbody');
+  if(!r.items.length){
+    tb.innerHTML = '<tr><td colspan="11" style="color:var(--dim);text-align:center;padding:30px">当前筛选条件下没有日志</td></tr>';
+    return;
+  }
+  tb.innerHTML = r.items.map(e => {
+    const geo = [e.srcGeoCountry, e.srcGeoRegion, e.srcGeoCity].filter(Boolean).join(' · ') || '-';
+    const url = e.requestUrlAddress || '-';
+    return '<tr data-id="' + e._id + '" class="' + (freshIds.has(e._id) ? 'fresh' : '') + '">' +
+      '<td class="mono">' + esc(e.startTime || '-') + '</td>' +
+      '<td class="mono">' + esc(e._host) + '</td>' +
+      '<td>' + esc(e.name || '-') + '</td>' +
+      '<td><span class="tag l-' + esc(e.dbappWAFEventLevel || '未知') + '">' + esc(e.dbappWAFEventLevel || '未知') + '</span></td>' +
+      '<td><span class="tag a-' + esc(e.dvcAction || '未知') + '">' + esc(e.dvcAction || '-') + '</span></td>' +
+      '<td class="mono">' + esc(e.srcAddress || '-') + '</td>' +
+      '<td><span class="geo" title="' + esc(geo) + '">' + esc(geo) + '</span></td>' +
+      '<td class="mono">' + esc(e.requestMethod || '-') + '</td>' +
+      '<td><span class="url mono" title="' + esc(url) + '">' + esc(url) + '</span></td>' +
+      '<td class="mono">' + esc(e.responseCode || '-') + '</td>' +
+      '<td class="mono">' + esc(e.ruelId || '-') + '</td></tr>';
+  }).join('');
+  setTimeout(() => freshIds.clear(), 6200);
+}
+$('tbody').addEventListener('click', ev => {
+  const tr = ev.target.closest('tr[data-id]');
+  if(tr) openDetail(tr.dataset.id);
+});
+$('btnPrev').onclick = () => { if(curPage > 0){ curPage--; refreshLogs(); } };
+$('btnNext').onclick = () => { curPage++; refreshLogs(); };
+
+/* ---------- 详情 ---------- */
+async function openDetail(id){
+  const e = await (await fetch('/api/log?id=' + encodeURIComponent(id))).json();
+  if(e.error) return toast('获取详情失败', false);
+  $('dTitle').innerHTML = '<span class="tag l-' + esc(e.dbappWAFEventLevel) + '">' + esc(e.dbappWAFEventLevel) + '</span> ' + esc(e.name);
+  const rows = [
+    ['攻击时间', e.startTime], ['采集时间', e.collectorReceiptTime], ['目标站点', e.destHostName],
+    ['防护设备', e.deviceName], ['动作', e.dvcAction], ['攻击类型', e.name], ['规则 ID', e.ruelId],
+    ['请求方法', e.requestMethod], ['应用协议', e.appProtocol], ['请求 URL', e.requestUrlAddress],
+    ['响应码', e.responseCode], ['源 IP:端口', (e.srcAddress || '-') + ':' + (e.srcPort || '-')],
+    ['目标端口', e.destPort], ['源地理', [e.srcGeoCountry, e.srcGeoRegion, e.srcGeoCity, e.srcGeoIsp].filter(Boolean).join(' · ')],
+    ['User-Agent', e.userAgent], ['匹配特征', e.attackSignature], ['POST 数据', e.postData || '(空)']
+  ];
+  $('dBody').innerHTML = '<div class="kv">' + rows.map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + esc(v || '-') + '</div>').join('') + '</div>' +
+    (e.rawEvent ? '<h3 style="font-size:13px;color:var(--dim);margin-top:10px">原始事件</h3><pre class="raw">' + esc(e.rawEvent) + '</pre>' : '');
+  const act = $('dActions');
+  if (e.srcAddress) {
+    act.style.display = 'block';
+    act.innerHTML = '<button class="primary">⛔ 拉黑源 IP ' + esc(e.srcAddress) + '（全站封禁）</button>';
+    act.querySelector('button').onclick = () => openBlacklist(e.srcAddress);
+  } else act.style.display = 'none';
+  $('drawer').classList.add('open'); $('overlay').classList.add('show');
+}
+function closeDrawer(){ $('drawer').classList.remove('open'); $('overlay').classList.remove('show'); }
+$('btnClose').onclick = closeDrawer; $('overlay').onclick = closeDrawer;
+document.addEventListener('keydown', e => { if(e.key === 'Escape'){ closeDrawer(); $('tokenModal').classList.remove('show'); $('blacklistModal').classList.remove('show'); } });
+
+/* ---------- IP 黑名单 ---------- */
+function openBlacklist(ip){
+  $('blIp').value = ip || '';
+  $('blacklistModal').classList.add('show');
+  if(!ip) $('blIp').focus();
+}
+$('btnBlacklist').onclick = () => openBlacklist('');
+$('blCancel').onclick = () => $('blacklistModal').classList.remove('show');
+$('blSubmit').onclick = async () => {
+  const ip = $('blIp').value.trim();
+  if(!ip) return toast('请填写 IP', false);
+  $('blSubmit').disabled = true; $('blSubmit').textContent = '提交中…';
+  let done = false;
+  try{
+    const r = await fetch('/api/blacklist', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ip, expireDays: parseInt($('blDays').value, 10), desc: $('blDesc').value.trim() }) });
+    const j = await r.json();
+    if(!r.ok) return toast(j.error || '提交失败', false);
+    if(j.ok){
+      toast('已封禁 ' + j.okCount + ' 个 IP（全站生效）');
+      $('blacklistModal').classList.remove('show');
+      $('blIp').value = ''; $('blDesc').value = '';
+      done = true;
+    } else {
+      toast('部分失败: ' + j.results.filter(x => !x.ok).map(x => x.ip + ' ' + x.detail).join('; '), false);
+    }
+  }catch(e){ toast('提交失败: ' + e.message, false); }
+  finally{ $('blSubmit').disabled = false; $('blSubmit').textContent = '确认封禁'; }
+  if(done){ try { refreshBlacklist(); } catch (e) {} } // 立即同步黑名单列表与菜单徽章（失败不影响提交结果提示）
+};
+
+/* ---------- 访问日志 ---------- */
+const VPAGE = 50;
+let vCurPage = 0, vTotalRows = 0;
+const fmtNum = n => n == null ? '-' : (n >= 10000 ? (n / 10000).toFixed(1) + '万' : String(n));
+const fmtBytes = b => { if (!b || b <= 0) return '-'; if (b < 1024) return b + 'B'; if (b < 1048576) return (b / 1024).toFixed(1) + 'K'; return (b / 1048576).toFixed(1) + 'M'; };
+
+async function refreshVisitStats(){
+  try{
+    const s = await (await fetch('/api/visitstats?hours=24')).json();
+    $('cVToday').textContent = fmtNum(s.today.count);
+    $('cVSites').textContent = s.sites.filter(x => x.count > 0).length;
+    $('cVTotal').textContent = fmtNum(s.total);
+    const spider = (s.spiders || []).find(x => ['1', 'true'].includes(String(x.name).toLowerCase()));
+    const win = (s.sites || []).reduce((a, x) => a + x.count, 0);
+    $('cVSpider').textContent = (spider && win) ? Math.round(spider.count * 100 / win) + '%' : '-';
+    $('navBadgeV').textContent = fmtNum(s.today.count);
+    renderHbars('pvSites', s.sites);
+    renderHbars('pvStatus', s.statusCodes, 'lv');
+    renderHbars('pvMethods', s.methods);
+    renderHbars('pvIps', s.srcIps, 'ip');
+    drawVChart(s.buckets);
+    renderMiniTrends(s.topTrends, miniCharts, fmtNum);
+  }catch(e){}
+}
+async function refreshVisitFacets(){
+  try{
+    const f = await (await fetch('/api/visitfacets?hours=' + $('vfHours').value)).json();
+    const okS = rebuildSelect('vfSite', 'all', '全部站点', f.sites.map(x => ({ v: x.host, t: x.host + (x.count ? ' (' + x.count + ')' : '') })));
+    const okC = rebuildSelect('vfStatus', 'all', '全部', f.statusCodes.map(x => ({ v: x.name, t: x.name + ' (' + x.count + ')' })));
+    const okM = rebuildSelect('vfMethod', 'all', '全部', f.methods.map(x => ({ v: x.name, t: x.name + ' (' + x.count + ')' })));
+    if(!okS || !okC || !okM){ vCurPage = 0; refreshVisitLogs(); }
+  }catch(e){}
+}
+async function refreshVisitLogs(){
+  const p = new URLSearchParams({
+    site: $('vfSite').value, status: $('vfStatus').value, method: $('vfMethod').value,
+    hours: $('vfHours').value, kw: $('vfKw').value.trim(), page: vCurPage, size: VPAGE
+  });
+  const r = await (await fetch('/api/visitlogs?' + p)).json();
+  vTotalRows = r.total;
+  const pages = Math.max(1, Math.ceil(vTotalRows / VPAGE));
+  if(vCurPage >= pages){ vCurPage = pages - 1; return refreshVisitLogs(); }
+  $('vrowInfo').textContent = '共 ' + (r.totalCapped ? '10000+' : r.total) + ' 条' + (window.__visitMaxLogs > 0 && r.total >= window.__visitMaxLogs ? '（已达明细容量上限，仅保留最新）' : '');
+  syncPageDisplay('vfPage', 'vfPageTotal', vCurPage, pages);
+  $('vbtnPrev').disabled = vCurPage === 0;
+  $('vbtnNext').disabled = vCurPage >= pages - 1;
+  const tb = $('vtbody');
+  if(!r.items.length){
+    tb.innerHTML = '<tr><td colspan="10" style="color:var(--dim);text-align:center;padding:30px">当前筛选条件下没有访问日志</td></tr>';
+    return;
+  }
+  tb.innerHTML = r.items.map(e => {
+    const geo = [e.srcGeoCountry, e.srcGeoRegion, e.srcGeoCity].filter(Boolean).join(' · ') || '-';
+    const url = e.requestUrl || '-';
+    const sc = String(e.responseCode == null ? '-' : e.responseCode);
+    const scCls = /^2|^3/.test(sc) ? 'a-放行' : (/^4|^5/.test(sc) ? 'a-阻断' : '');
+    return '<tr data-vid="' + e._id + '">' +
+      '<td class="mono">' + esc(e.startTime || '-') + '</td>' +
+      '<td class="mono">' + esc(e._host) + '</td>' +
+      '<td class="mono">' + esc(e.srcAddress || '-') + '</td>' +
+      '<td><span class="geo" title="' + esc(geo) + '">' + esc(geo) + '</span></td>' +
+      '<td class="mono">' + esc(e.requestMethod || '-') + '</td>' +
+      '<td><span class="url mono" title="' + esc(url) + '">' + esc(url) + '</span></td>' +
+      '<td>' + (scCls ? '<span class="tag ' + scCls + '">' + esc(sc) + '</span>' : '<span class="mono">' + esc(sc) + '</span>') + '</td>' +
+      '<td class="mono">' + esc(e.trTime || '-') + '</td>' +
+      '<td class="mono">' + fmtBytes((Number(e.bytesIn) || 0) + (Number(e.bytesOut) || 0)) + '</td>' +
+      '<td>' + (['1', 'true'].includes(String(e.isSpider).toLowerCase()) ? '🕷' : '') + '</td></tr>';
+  }).join('');
+}
+$('vtbody').addEventListener('click', ev => {
+  const tr = ev.target.closest('tr[data-vid]');
+  if(tr) openVisitDetail(tr.dataset.vid);
+});
+$('vbtnPrev').onclick = () => { if(vCurPage > 0){ vCurPage--; refreshVisitLogs(); } };
+$('vbtnNext').onclick = () => { vCurPage++; refreshVisitLogs(); };
+for(const id of ['vfSite', 'vfStatus', 'vfMethod']) $(id).onchange = () => { vCurPage = 0; refreshVisitLogs(); };
+$('vfHours').onchange = () => { vCurPage = 0; refreshVisitLogs(); refreshVisitFacets(); };
+let vkwT; $('vfKw').oninput = () => { clearTimeout(vkwT); vkwT = setTimeout(() => { vCurPage = 0; refreshVisitLogs(); }, 350); };
+
+async function openVisitDetail(id){
+  const e = await (await fetch('/api/visitlog?id=' + encodeURIComponent(id))).json();
+  if(e.error) return toast('获取详情失败', false);
+  $('dTitle').textContent = '🌐 访问详情 · ' + (e.destHostName || '-');
+  const rows = [
+    ['访问时间', e.startTime], ['采集时间', e.collectorReceiptTime], ['站点', e.destHostName],
+    ['防护设备', e.deviceName], ['方法', e.requestMethod], ['请求 URL', e.requestUrl],
+    ['响应码', e.responseCode], ['响应耗时', (e.trTime == null ? '-' : e.trTime) + ' ms'],
+    ['源 IP:端口', (e.srcAddress || '-') + ':' + (e.srcPort || '-')],
+    ['源地理', [e.srcGeoCountry, e.srcGeoRegion, e.srcGeoCity].filter(Boolean).join(' · ')],
+    ['Referer', e.httpReferer || '(空)'], ['User-Agent', e.requestClientApplication || e.accessAgent || '-'],
+    ['操作系统', e.clientOperatingSystem || '-'], ['浏览器', e.browser_version || '-'],
+    ['是否爬虫', ['1', 'true'].includes(String(e.isSpider).toLowerCase()) ? '是' : '否'],
+    ['流量', (Number(e.bytesIn) || 0) + 'B 入 / ' + (Number(e.bytesOut) || 0) + 'B 出'],
+    ['阶段耗时(ms)', 'tq=' + (e.tqTime ?? '-') + ' tc=' + (e.tcTime ?? '-') + ' tt=' + (e.ttTime ?? '-') + ' tw=' + (e.twTime ?? '-') + ' tr=' + (e.trTime ?? '-')]
+  ];
+  $('dBody').innerHTML = '<div class="kv">' + rows.map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + esc(v || '-') + '</div>').join('') + '</div>' +
+    (e.rawEvent ? '<h3 style="font-size:13px;color:var(--dim);margin-top:10px">原始事件</h3><pre class="raw">' + esc(e.rawEvent) + '</pre>' : '');
+  $('dActions').style.display = 'none';
+  $('drawer').classList.add('open'); $('overlay').classList.add('show');
+}
+
+/* ---------- Token 弹窗 ---------- */
+$('btnToken').onclick = async () => {
+  $('tokenModal').classList.add('show');
+  $('tokenInput').focus();
+  try{
+    const cur = await (await fetch('/api/token')).json();
+    $('curToken').value = cur.token || '（未配置）';
+  }catch(e){ $('curToken').value = '（获取失败）'; }
+};
+$('btnCopyToken').onclick = async () => {
+  const t = $('curToken').value;
+  if(!t || t.startsWith('（')) return toast('没有可复制的 Token', false);
+  try{
+    await navigator.clipboard.writeText(t);
+    toast('当前 Token 已复制');
+  }catch(e){
+    $('curToken').select();
+    document.execCommand('copy');
+    toast('当前 Token 已复制');
+  }
+};
+$('btnTokenCancel').onclick = () => $('tokenModal').classList.remove('show');
+$('btnTokenSave').onclick = async () => {
+  let t = $('tokenInput').value.trim().replace(/^Bearer\s+/i, '');
+  if(!t) return toast('请粘贴 Token', false);
+  const r = await fetch('/api/token', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token: t }) });
+  const j = await r.json();
+  if(!r.ok) return toast(j.error || '保存失败', false);
+  $('tokenModal').classList.remove('show'); $('tokenInput').value = '';
+  toast('Token 已保存，正在重新查询…');
+  refreshState(); refreshStats(); refreshLogs();
+};
+
+/* ---------- 轮询间隔设置 ---------- */
+$('fInterval').onchange = async () => {
+  const minutes = parseFloat($('fInterval').value);
+  try{
+    const r = await fetch('/api/interval', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ minutes }) });
+    const j = await r.json();
+    if(!r.ok){ toast(j.error || '设置失败', false); await refreshState(); return; }
+    nextPollAt = j.nextPollAt || 0;
+    toast('轮询间隔已设为 ' + $('fInterval').selectedOptions[0].textContent + '，已重新排期');
+  }catch(e){ toast('设置失败：' + e.message, false); }
+};
+
+/* ---------- 主题切换 ---------- */
+function applyTheme(light){
+  document.body.classList.toggle('light', light);
+  try{ localStorage.setItem('theme', light ? 'light' : 'dark'); }catch(e){}
+  $('btnTheme').textContent = light ? '🌙 深色' : '☀️ 浅色';
+  drawChart(chartBuckets);
+  drawVChart(vBuckets);
+  miniCharts.forEach(m => m.render());
+  aMiniCharts.forEach(m => m.render());
+}
+$('btnTheme').onclick = () => applyTheme(!document.body.classList.contains('light'));
+$('btnTheme').textContent = document.body.classList.contains('light') ? '🌙 深色' : '☀️ 浅色';
+
+/* ---------- 手动刷新 ---------- */
+$('btnPoll').onclick = async () => {
+  const r = await fetch('/api/poll', { method:'POST' });
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok) return toast(j.error || '触发失败', false);
+  toast('已触发查询，通常 1~3 秒内完成');
+  $('btnPoll').disabled = true; $('btnPoll').textContent = '查询中…';
+};
+
+/* ---------- 筛选事件 ---------- */
+for(const id of ['fSite', 'fLevel', 'fAction', 'fStatus']) $(id).onchange = () => { curPage = 0; refreshLogs(); };
+$('fHours').onchange = () => { curPage = 0; refreshLogs(); refreshFacets(); };
+let kwT; $('fKw').oninput = () => { clearTimeout(kwT); kwT = setTimeout(() => { curPage = 0; refreshLogs(); }, 350); };
+
+/* ---------- SSE 实时 ---------- */
+let es, fallbackTimer;
+function connectSSE(){
+  try{ es && es.close(); }catch(e){}
+  es = new EventSource('/api/stream');
+  es.addEventListener('hello', () => { $('sseDot').className = 'dot ok'; $('sseTxt').textContent = '实时连接'; clearInterval(fallbackTimer); });
+  es.addEventListener('poll', ev => {
+    const d = JSON.parse(ev.data);
+    (d.latest || []).forEach(x => freshIds.add(x._id));
+    refreshState();
+    // 只刷新当前视图的数据，避免无差别全量刷新阻塞交互
+    const v = currentView();
+    if (v === 'logs') { refreshFacets(); refreshLogs(); }
+    else if (v === 'visits') { refreshVisitFacets(); refreshVisitLogs(); }
+    else if (v === 'voverview') refreshVisitStats();
+    else if (v === 'overview') refreshStats();
+    if(d.added > 0 && v !== 'blacklist') toast('收到 ' + d.added + ' 条新攻击日志');
+    else if(d.error) toast('轮询出错：' + d.error, false);
+  });
+  es.addEventListener('token', () => refreshState());
+  es.addEventListener('keepalive', ev => { try { renderKeepAlive(JSON.parse(ev.data)); } catch (e) {} });
+  es.addEventListener('interval', () => refreshState());
+  es.onopen = () => { $('sseDot').className = 'dot ok'; $('sseTxt').textContent = '实时连接'; };
+  es.onerror = () => {
+    $('sseDot').className = 'dot err'; $('sseTxt').textContent = '实时连接断开，30秒轮询兜底';
+    clearInterval(fallbackTimer);
+    fallbackTimer = setInterval(() => { refreshState(); refreshStats(); refreshLogs(); }, 30000);
+  };
+}
+
+/* ---------- 倒计时 ---------- */
+setInterval(() => {
+  if(!nextPollAt){ $('countdown').textContent = '--:--'; return; }
+  let s = Math.floor((nextPollAt - Date.now()) / 1000);
+  if(s < 0) s = 0;
+  $('countdown').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}, 1000);
+
+/* ---------- 初始化 ---------- */
+(async function init(){
+  applyView();
+  await refreshState();
+  try{ await refreshStats(); }catch(e){}
+  refreshFacets();
+  refreshVisitStats(); refreshVisitFacets();
+  refreshBlacklist();
+  connectSSE();
+  setInterval(refreshState, 30000);
+})();
+</script>
+</body>
+</html>
